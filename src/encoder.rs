@@ -1,6 +1,12 @@
 use crate::alloc::{string::String, vec::Vec};
 use crate::types::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
 
+/// SLIP protocol special characters
+const SLIP_END: u8 = 0xC0;
+const SLIP_ESC: u8 = 0xDB;
+const SLIP_ESC_END: u8 = 0xDC;
+const SLIP_ESC_ESC: u8 = 0xDD;
+
 /// Takes a reference to an OSC packet and returns
 /// a byte vector on success. If the packet was invalid
 /// an `OscError` is returned.
@@ -23,6 +29,39 @@ pub fn encode(packet: &OscPacket) -> crate::types::Result<Vec<u8>> {
 
     // NOTE: The Output implementation for Vec<u8> can't actually produce an error!
     encode_into(packet, &mut bytes).expect("Failed to write encoded packet into Vec");
+
+    Ok(bytes)
+}
+
+/// Works exactly the same as [encode()]. Except that it uses SLIP encoding (RFC1055) as per the
+/// OSC 1.1 specification. The packet is wrapped with END characters and any END or ESC characters
+/// within the packet are properly escaped.
+pub fn encode_tcp_slip(packet: &OscPacket) -> crate::types::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+
+    // Start with END character
+    bytes.push(SLIP_END);
+
+    // Encode the packet
+    let packet_bytes = encode(packet)?;
+
+    // SLIP encode the packet bytes
+    for &b in packet_bytes.iter() {
+        match b {
+            SLIP_END => {
+                bytes.push(SLIP_ESC);
+                bytes.push(SLIP_ESC_END);
+            }
+            SLIP_ESC => {
+                bytes.push(SLIP_ESC);
+                bytes.push(SLIP_ESC_ESC);
+            }
+            _ => bytes.push(b),
+        }
+    }
+
+    // End with END character
+    bytes.push(SLIP_END);
 
     Ok(bytes)
 }

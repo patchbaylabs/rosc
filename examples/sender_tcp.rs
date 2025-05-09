@@ -1,6 +1,6 @@
 extern crate rosc;
 
-use rosc::encoder::{self, Output};
+use rosc::encoder::{self};
 use rosc::{OscMessage, OscPacket, OscType};
 use std::io::Write;
 use std::net::{SocketAddrV4, TcpStream};

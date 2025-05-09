@@ -7,6 +7,7 @@ use rosc::{OscArray, OscBundle, OscColor, OscMessage, OscMidiMessage, OscPacket,
 
 extern crate hex;
 
+const SLIP_END: &str = "c0";
 const GOLDEN_MESSAGE_WO_ARGS: &str = "2f736f6d652f6164647200002c000000";
 const GOLDEN_MESSAGE_WITH_ALL_TYPES: &str = "2f616e6f746865722f616464726573732f3100002c69686664737362746346544e496d725b695b64645d735d0000000000000004000000000000002a40490fda400921fb54442eea54686973206973206120737472696e672e00000054686973206973206120737472696e6720746f6f2e00000000000003010203000000007b000001c80000006304292a81ffc02a0d0000002a3ff3ae147ae147ae4009ae147ae147ae59617900";
 const GOLDEN_EMPTY_BUNDLE: &str = "2362756e646c65000000000400000002";
@@ -43,6 +44,30 @@ fn test_message_wo_args_tcp() {
     );
     assert_eq!((bytes.len() as u32 - 4).to_be_bytes(), bytes[0..4]);
     let (tail, decoded_packet) = decoder::decode_tcp(&bytes).expect("decode failed");
+    assert_eq!(0, tail.len());
+    assert_eq!(Some(packet), decoded_packet)
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn test_message_wo_args_tcp_slip() {
+    let packet = OscPacket::Message(OscMessage {
+        addr: "/some/addr".to_string(),
+        args: vec![],
+    });
+
+    let bytes = encoder::encode_tcp_slip(&packet).expect("encode failed");
+    assert_eq!(
+        hex::decode(format!("{}{}{}", SLIP_END, GOLDEN_MESSAGE_WO_ARGS, SLIP_END).as_str())
+            .unwrap(),
+        bytes
+    );
+    assert_eq!(hex::decode(SLIP_END).unwrap(), bytes[0..1]);
+    assert_eq!(
+        hex::decode(SLIP_END).unwrap(),
+        bytes[bytes.len() - 1..bytes.len()]
+    );
+    let (tail, decoded_packet) = decoder::decode_tcp_slip(&bytes).expect("decode failed");
     assert_eq!(0, tail.len());
     assert_eq!(Some(packet), decoded_packet)
 }
@@ -157,6 +182,72 @@ fn test_encode_message_with_all_types_tcp() {
     assert_eq!((bytes.len() as u32 - 4).to_be_bytes(), bytes[0..4]);
 
     let (tail, decoded_packet) = decoder::decode_tcp(&bytes).expect("decode failed");
+    assert_eq!(0, tail.len());
+    assert_eq!(Some(packet), decoded_packet)
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn test_encode_message_with_all_types_tcp_slip() {
+    let packet = OscPacket::Message(OscMessage {
+        addr: "/another/address/1".to_string(),
+        args: vec![
+            4i32.into(),
+            42i64.into(),
+            3.1415926f32.into(),
+            3.14159265359f64.into(),
+            "This is a string.".to_string().into(),
+            "This is a string too.".into(),
+            vec![1u8, 2u8, 3u8].into(),
+            (123, 456).into(),
+            'c'.into(),
+            false.into(),
+            true.into(),
+            OscType::Nil,
+            OscType::Inf,
+            OscMidiMessage {
+                port: 4,
+                status: 41,
+                data1: 42,
+                data2: 129,
+            }
+            .into(),
+            OscColor {
+                red: 255,
+                green: 192,
+                blue: 42,
+                alpha: 13,
+            }
+            .into(),
+            OscArray {
+                content: vec![
+                    42i32.into(),
+                    OscArray {
+                        content: vec![1.23.into(), 3.21.into()],
+                    }
+                    .into(),
+                    "Yay".into(),
+                ],
+            }
+            .into(),
+        ],
+    });
+
+    let bytes = encoder::encode_tcp_slip(&packet).expect("encode failed");
+
+    /*
+        assert_eq!(
+        hex::decode(format!("{}{}{}", SLIP_END,GOLDEN_MESSAGE_WITH_ALL_TYPES,SLIP_END).as_str()).unwrap(),
+        bytes
+    );
+    */
+
+    assert_eq!(hex::decode(SLIP_END).unwrap(), bytes[0..1]);
+    assert_eq!(
+        hex::decode(SLIP_END).unwrap(),
+        bytes[bytes.len() - 1..bytes.len()]
+    );
+    let (tail, decoded_packet) = decoder::decode_tcp_slip(&bytes).expect("decode failed");
     assert_eq!(0, tail.len());
     assert_eq!(Some(packet), decoded_packet)
 }

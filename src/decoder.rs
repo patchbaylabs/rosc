@@ -18,6 +18,12 @@ use nom::{combinator::map_res, sequence::tuple, Err, IResult};
 /// Common MTU size for ethernet
 pub const MTU: usize = 1536;
 
+/// SLIP protocol special characters
+pub const SLIP_END: u8 = 0xC0;
+pub const SLIP_ESC: u8 = 0xDB;
+pub const SLIP_ESC_END: u8 = 0xDC;
+pub const SLIP_ESC_ESC: u8 = 0xDD;
+
 /// Takes a bytes slice representing a UDP packet and returns the OSC packet as well as a slice of
 /// any bytes remaining after the OSC packet.
 pub fn decode_udp(msg: &[u8]) -> Result<(&[u8], OscPacket), OscError> {
@@ -65,6 +71,88 @@ pub fn decode_tcp(msg: &[u8]) -> Result<(&[u8], Option<OscPacket>), OscError> {
 
 /// Takes a bytes slice from a TCP stream (or any stream-based protocol) and returns a vec of all
 /// OSC packets in the slice as well as a slice of the bytes remaining after the last packet.
+/// Takes a bytes slice from a TCP stream using OSC 1.1 with SLIP encoding and returns the first OSC
+/// packet as well as a slice of the bytes remaining after the packet.
+///
+/// # OSC 1.1 and SLIP
+///
+/// OSC 1.1 employs SLIP (RFC1055) encoding with a double END character
+/// sequence for packet boundaries. SLIP special characters are:
+/// - END (0xC0): Marks packet boundaries
+/// - ESC (0xDB): Escape character
+/// - ESC_END (0xDC): Escaped END character
+/// - ESC_ESC (0xDD): Escaped ESC character
+pub fn decode_tcp_slip(msg: &[u8]) -> Result<(&[u8], Option<OscPacket>), OscError> {
+    // Check for minimum size (END character + message)
+    if msg.len() < 2 {
+        return Ok((msg, None));
+    }
+
+    // Find the start of the packet (single END)
+    let mut start_idx = 0;
+    while start_idx < msg.len() {
+        if msg[start_idx] == SLIP_END {
+            start_idx += 1;
+            break;
+        }
+        start_idx += 1;
+    }
+
+    if start_idx >= msg.len() - 8 {
+        return Ok((msg, None));
+    }
+
+    let input = &msg[start_idx..];
+
+    // Un-SLIP the packet data
+    let mut decoded = Vec::new();
+    let mut i = 0;
+    let mut ended = false;
+    while i < input.len() {
+        match input[i] {
+            SLIP_END => {
+                // Found end of packet
+                ended = true;
+                break;
+            }
+            SLIP_ESC => {
+                if i + 1 >= input.len() {
+                    return Err(OscError::BadPacket("Incomplete SLIP escape sequence"));
+                }
+                match input[i + 1] {
+                    SLIP_ESC_END => decoded.push(SLIP_END),
+                    SLIP_ESC_ESC => decoded.push(SLIP_ESC),
+                    _ => return Err(OscError::BadPacket("Invalid SLIP escape sequence")),
+                }
+                i += 2;
+            }
+            b => {
+                decoded.push(b);
+                i += 1;
+            }
+        }
+    }
+
+    if !ended {
+        return Err(OscError::BadPacket("Incomplete data"));
+    }
+
+    // Decode the OSC packet from the un-SLIP'd data
+    match decode_packet(&decoded, &decoded) {
+        Ok((_, osc_packet)) => {
+            // Skip to after the next END character
+            while i < input.len() && input[i] != SLIP_END {
+                i += 1;
+            }
+            Ok((&input[i + 1..], Some(osc_packet)))
+        }
+        Err(e) => match e {
+            Err::Incomplete(_) => Err(OscError::BadPacket("Incomplete data")),
+            Err::Error(e) | Err::Failure(e) => Err(e),
+        },
+    }
+}
+
 pub fn decode_tcp_vec(msg: &[u8]) -> Result<(&[u8], Vec<OscPacket>), OscError> {
     let mut input = msg;
     let mut osc_packets = vec![];
