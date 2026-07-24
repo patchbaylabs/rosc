@@ -52,7 +52,7 @@ fn main() {
                     let mut slice = &buf[0..size];
 
                     while let Some(remainder) = match decode_tcp_slip(slice) {
-                        Ok((remainder, None)) => {
+                        Ok((_remainder, None)) => {
                             // Break the loop when we get None - we need more data
                             None
                         }

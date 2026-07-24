@@ -1,11 +1,6 @@
 use crate::alloc::{string::String, vec::Vec};
+use crate::decoder::{SLIP_ESC, SLIP_ESC_END, SLIP_ESC_ESC, SLIP_END};
 use crate::types::{OscBundle, OscMessage, OscPacket, OscTime, OscType};
-
-/// SLIP protocol special characters
-const SLIP_END: u8 = 0xC0;
-const SLIP_ESC: u8 = 0xDB;
-const SLIP_ESC_END: u8 = 0xDC;
-const SLIP_ESC_ESC: u8 = 0xDD;
 
 /// Takes a reference to an OSC packet and returns
 /// a byte vector on success. If the packet was invalid

@@ -98,7 +98,7 @@ pub fn decode_tcp_slip(msg: &[u8]) -> Result<(&[u8], Option<OscPacket>), OscErro
         start_idx += 1;
     }
 
-    if start_idx >= msg.len() - 8 {
+    if start_idx + 8 > msg.len() {
         return Ok((msg, None));
     }
 
@@ -117,7 +117,9 @@ pub fn decode_tcp_slip(msg: &[u8]) -> Result<(&[u8], Option<OscPacket>), OscErro
             }
             SLIP_ESC => {
                 if i + 1 >= input.len() {
-                    return Err(OscError::BadPacket("Incomplete SLIP escape sequence"));
+                    // Escape sequence cut short by the buffer boundary; not
+                    // necessarily invalid, just need more data from the stream.
+                    return Ok((msg, None));
                 }
                 match input[i + 1] {
                     SLIP_ESC_END => decoded.push(SLIP_END),
@@ -134,18 +136,13 @@ pub fn decode_tcp_slip(msg: &[u8]) -> Result<(&[u8], Option<OscPacket>), OscErro
     }
 
     if !ended {
-        return Err(OscError::BadPacket("Incomplete data"));
+        // No terminating END in the buffer yet; wait for more data.
+        return Ok((msg, None));
     }
 
     // Decode the OSC packet from the un-SLIP'd data
     match decode_packet(&decoded, &decoded) {
-        Ok((_, osc_packet)) => {
-            // Skip to after the next END character
-            while i < input.len() && input[i] != SLIP_END {
-                i += 1;
-            }
-            Ok((&input[i + 1..], Some(osc_packet)))
-        }
+        Ok((_, osc_packet)) => Ok((&input[i + 1..], Some(osc_packet))),
         Err(e) => match e {
             Err::Incomplete(_) => Err(OscError::BadPacket("Incomplete data")),
             Err::Error(e) | Err::Failure(e) => Err(e),
